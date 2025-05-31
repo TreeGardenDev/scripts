@@ -1,0 +1,150 @@
+#!/usr/bin/bash
+
+curlval=$(curl -s 'localhost:8080/get_all_lists/1' | jq)
+
+titlearry=()
+idarry=()
+concatarry=()
+iterator=0
+
+# Parse the list of tasks
+#
+#Turn into function
+parse_lists() {
+    for i in $(echo "$curlval" | jq -r '.[] | @base64'); do
+        _jq() {
+            echo ${i} | base64 --decode | jq -r ${1}
+        }
+
+        title=$(_jq '.title')
+        id=$(_jq '.id')
+        titlearry+=("$title")
+        idarry+=("$id")
+        concatarry+=("$iterator $title $id")
+        iterator=$((iterator + 1))
+    done
+}
+
+parse_lists
+#for i in $(echo "$curlval" | jq -r '.[] | @base64'); do
+#    _jq() {
+#        echo ${i} | base64 --decode | jq -r ${1}
+#    }
+#
+#    title=$(_jq '.title')
+#    id=$(_jq '.id')
+#    titlearry+=("$title")
+#    idarry+=("$id")
+#    concatarry+=("$iterator $title $id")
+#    iterator=$((iterator + 1))
+#done
+
+#Add an option at the bottomo that says add a new list
+concatarry+=("$iterator Add a new list null")
+if [ -z "$curlval" ]; then
+    echo "No lists found. Please create a new list."
+    exit 1
+fi
+
+# Select a list
+val=$(printf '%s\n' "${concatarry[@]}" | fzf  --reverse --inline-info --header "Select a list to view tasks")
+#Check if user selected "Add a new list"
+if [ "$val" = "$iterator Add a new list null" ]; then
+    new_list_name=$(fzf --print-query --height 10% --reverse --header "Enter new list name" <<< "")
+    if [ -n "$new_list_name" ]; then
+        # Send to API (adjust endpoint/fields as needed)
+        curl -s -X POST -H "Content-Type: application/json" \
+            -d "{\"title\":\"$new_list_name\"}" \
+            "127.0.0.1:8080/create_list"
+        curlval=$(curl -s "localhost:8080/get_all_lists/1" | jq)
+        #re create concatarry
+        idarry=()
+        concatarry=()
+        iterator=0
+        parse_lists
+        concatarry+=("$iterator Add a new list null")
+        
+
+        val=$(printf '%s\n' "${concatarry[@]}" | fzf --height 40% --reverse --inline-info --header "Select a list to view tasks")
+    fi
+fi
+            
+idx=$(echo $val | cut -d' ' -f1)
+listid="${idarry[$idx]}"
+listtitle="${titlearry[$idx]}"
+# ...existing code...
+
+# Prompt to create a new item
+create_new=$(printf "No\nYes\n" | fzf --height 10% --reverse --header "Create a new item in '$listtitle'?")
+if [ "$create_new" = "Yes" ]; then
+    new_item_name=$(fzf --print-query --height 10% --reverse --header "Enter new item name" <<< "")
+    if [ -n "$new_item_name" ]; then
+        # Send to API (adjust endpoint/fields as needed)
+        curl -s -X POST -H "Content-Type: application/json" \
+            -d "{\"title\":\"$listtitle\",\"name\":\"$new_item_name\"}" \
+            "127.0.0.1:8080/create_item"
+        echo "Created new item: $new_item_name"
+        # Optionally, refresh the list here by re-fetching curlval
+        curlval=$(curl -s "localhost:8080/get_list/$listid" | jq)
+    fi
+fi
+
+# ...continue with parsing and modifying items...
+
+curlval=$(curl -s "localhost:8080/get_list/$listid" | jq)
+
+iterator=0
+itmnamearry=()
+itmidarry=()
+concatitmarry=()
+
+# Parse the items in the selected list
+for i in $(echo "$curlval" | jq -r '.items.items[]| @base64'); do
+    _jq() {
+        echo ${i} | base64 --decode | jq -r ${1}
+    }
+
+    title=$(_jq '.name')
+    id=$(_jq '.id')
+    completed=$(_jq '.completed')
+    child_list_id=$(_jq '.child_list_id')
+    itmnamearry+=("$title")
+    itmidarry+=("$id")
+    child_list_title="null"
+    if [ "$child_list_id" != "null" ]; then
+        child_list=$(_jq '.child_list.list')
+        child_list_title=$(echo $child_list | jq -r '.title')
+        concatitmarry+=("$iterator $title $id $completed $child_list_title $child_list_id")
+    else
+        concatitmarry+=("$iterator $title $id $completed null null")
+    fi
+    iterator=$((iterator + 1))
+done
+
+# Allow user to select multiple items
+selected_items=$(printf '%s\n' "${concatitmarry[@]}" | fzf --height 40% --reverse --multi --inline-info --header "Select tasks to modify")
+
+# Initialize JSON array
+json_payload="[]"
+
+# Loop through selected items and prompt for actions
+while read -r itemval; do
+    itemidx=$(echo "$itemval" | cut -d' ' -f1)
+    itemid="${itmidarry[$itemidx]}"
+
+    # Prompt for actions
+    required=$(printf "true\nfalse\n" | fzf --height 10% --reverse --header "Make item $itemid required?")
+    completed=$(printf "true\nfalse\n" | fzf --height 10% --reverse --header "Mark item $itemid as completed?")
+    delete=$(printf "true\nfalse\n" | fzf --height 10% --reverse --header "Delete item $itemid?")
+
+    # Add to JSON array
+    json_payload=$(echo "$json_payload" | jq --argjson item_id "$itemid" \
+        --argjson required "$required" \
+        --argjson completed "$completed" \
+        --argjson delete "$delete" \
+        '. + [{item_id: $item_id, required: $required, completed: $completed, delete: $delete}]')
+done <<< "$selected_items"
+
+
+# Send to API
+curl -s -X POST -H "Content-Type: application/json" -d "$json_payload" "localhost:8080/update_items"
