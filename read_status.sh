@@ -2,19 +2,13 @@
 
 cleanup() {
   rm -f /tmp/status_pipe
-  systemctl --user stop Sway_Status.{service,timer}
-  systemctl --user reset-failed Sway_Status.{service,timer}
 }
 
 trap cleanup EXIT
 trap "exit" INT
 
 
-
 generate_status="$HOME/.local/bin/statusbar.sh"
-
-
-
 
 
 #similar to  the brightness, how would this search for time change
@@ -37,10 +31,4 @@ done &
 nc -k -l -U /tmp/status_pipe | while IFS='\n' read -r current_status; do
   printf "$current_status\n"
 done
-#systemd-run                        \
-#  --unit="Sway_Status.service"                \
-#  --quiet                          \
-#  --user                           \
-#  --on-calendar="*:*:0/5"                 \
-#  $generate_status
 
