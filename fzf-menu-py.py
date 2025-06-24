@@ -38,6 +38,10 @@ def show_all_applications():
         echo_string.append(str(name))
 
     result = subprocess.run(["fzf", "--layout=reverse-list", "--border=rounded", "--border-label='Fuzzy Menu'"], input=" \n".join(echo_string), text=True, capture_output=True)
+    if result.returncode != 0:
+        print("No application selected.")
+        return
+
     result=result.stdout.strip()
 
     execute=desktop_dict[result]

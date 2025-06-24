@@ -7,10 +7,11 @@ case $op in
                 ;&
         reboot)
                 ;&
-        suspend)
-                ;&
         hibernate)
                 systemctl $op
+                ;;
+        suspend)
+                systemctl suspend && swaylock
                 ;;
         logout)
                 swaymsg exit
