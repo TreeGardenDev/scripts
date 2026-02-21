@@ -16,26 +16,39 @@ def parse_desktop_file(file_path):
     import configparser
     config = configparser.ConfigParser(interpolation=None)
     config.read(file_path)
+    name=""
+    command=""
     try:
-        name = config.get('Desktop Entry', 'Name')
+     
+
+        name = config.get('Desktop Entry', 'Name', fallback=None)
+        if not name:
+            name = config.get('Desktop Entry', 'Name[en]', fallback=None)
+
 
         if 'Exec' not in config['Desktop Entry']:
-            return None, None
+            name = "ERROR"
+            command = "ERROR"
 
-        command = config.get('Desktop Entry', 'Exec').replace('%u', '').replace('%U', '').replace('%f', '').replace('%F', '').strip()
+        #check if exec is there and if it is, remove the arguments
+        if 'Exec' in config['Desktop Entry']:
+            command = config.get('Desktop Entry', 'Exec').replace('%u', '').replace('%U', '').replace('%f', '').replace('%F', '').strip()
+        else:
+            command = "ERROR"
         if 'Terminal' in config['Desktop Entry'] and config.getboolean('Desktop Entry', 'Terminal'):
             command = f"alacritty -e {command}"
-        #if the 
-        
-        
-        return name, command
-    finally:
-        #Closed
-        a=1
+       
+    except configparser.NoSectionError:
+        print(f"Error: No 'Desktop Entry' section in {file_path}")
+        #return "Error","Error" 
+    return name, command
+
 def show_all_applications():
     echo_string = []
     for name, command in desktop_dict.items():
+        
         echo_string.append(str(name))
+
 
     result = subprocess.run(["fzf", "--layout=reverse-list", "--border=rounded", "--border-label='Fuzzy Menu'"], input=" \n".join(echo_string), text=True, capture_output=True)
     if result.returncode != 0:
@@ -58,7 +71,10 @@ def run_executable(command):
 def main():
     files= get_desktop_files()
     for file in files:  
+        
         name, command = parse_desktop_file(file)
+        if name == "ERROR":
+            continue
         desktop_dict[name] = command
     show_all_applications()
 
